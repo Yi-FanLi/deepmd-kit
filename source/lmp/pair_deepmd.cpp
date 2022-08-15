@@ -1,4 +1,5 @@
 #include <iostream>
+#include <sstream>
 #include <string.h>
 #include <iomanip>
 #include <limits>
@@ -111,7 +112,7 @@ std::string PairDeepMD::get_file_content(const std::string & model) {
   int nchar = 0;
   std::string file_content;
   if (myrank == root) {
-    deepmd::check_status(tensorflow::ReadFileToString(tensorflow::Env::Default(), model, &file_content));
+    deepmd::read_file_to_string(model, file_content);
     nchar = file_content.size();
   }
   MPI_Bcast(&nchar, 1, MPI_INT, root, MPI_COMM_WORLD);  
@@ -411,7 +412,11 @@ void PairDeepMD::compute(int eflag, int vflag)
 	vector<double > deatom (nall * 1, 0);
 	vector<double > dvatom (nall * 9, 0);
 #ifdef HIGH_PREC
+  try {
 	deep_pot.compute (dener, dforce, dvirial, deatom, dvatom, dcoord, dtype, dbox, nghost, lmp_list, ago, fparam, daparam);
+  } catch(deepmd::deepmd_exception& e) {
+    error->all(FLERR, e.what());
+  }
 #else 
 	vector<float> dcoord_(dcoord.size());
 	vector<float> dbox_(dbox.size());

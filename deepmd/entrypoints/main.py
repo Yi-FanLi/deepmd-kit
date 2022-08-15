@@ -20,7 +20,9 @@ from deepmd.entrypoints import (
 )
 from deepmd.loggers import set_log_handles
 
-__all__ = ["main", "parse_args", "get_ll"]
+from deepmd.nvnmd.entrypoints.train import train_nvnmd
+
+__all__ = ["main", "parse_args", "get_ll", "main_parser"]
 
 
 def get_ll(log_level: str) -> int:
@@ -44,14 +46,13 @@ def get_ll(log_level: str) -> int:
     return int_level
 
 
-def parse_args(args: Optional[List[str]] = None):
+def main_parser() -> argparse.ArgumentParser:
     """DeePMD-Kit commandline options argument parser.
 
-    Parameters
-    ----------
-    args: List[str]
-        list of command line arguments, main purpose is testing default option None
-        takes arguments from sys.argv
+    Returns
+    -------
+    argparse.ArgumentParser
+        main parser of DeePMD-kit
     """
     parser = argparse.ArgumentParser(
         description="DeePMD-kit: A deep learning package for many-body potential energy"
@@ -204,6 +205,13 @@ def parse_args(args: Optional[List[str]] = None):
         type=str,
         default=None,
         help="the frozen nodes, if not set, determined from the model type",
+    )
+    parser_frz.add_argument(
+        "-w",
+        "--nvnmd-weight",
+        type=str,
+        default=None,
+        help="the name of weight file (.npy), if set, save the model's weight into the file",
     )
 
     # * test script ********************************************************************
@@ -383,7 +391,6 @@ def parse_args(args: Optional[List[str]] = None):
     )
 
     # * convert models
-    # supported: 1.2->2.0, 1.3->2.0
     parser_transform = subparsers.add_parser(
         'convert-from',
         parents=[parser_log],
@@ -392,7 +399,7 @@ def parse_args(args: Optional[List[str]] = None):
     parser_transform.add_argument(
         'FROM',
         type = str,
-        choices = ['1.0', '1.1', '1.2', '1.3', '2.0'],
+        choices = ['0.12', '1.0', '1.1', '1.2', '1.3', '2.0'],
         help="The original model compatibility",
     )
     parser_transform.add_argument(
@@ -438,10 +445,46 @@ def parse_args(args: Optional[List[str]] = None):
         required=True,
         help="type map",
     )
-        
+
     # --version
     parser.add_argument('--version', action='version', version='DeePMD-kit v%s' % __version__)
 
+    # * train nvnmd script ******************************************************************
+    parser_train_nvnmd = subparsers.add_parser(
+        "train-nvnmd",
+        parents=[parser_log],
+        help="train nvnmd model",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser_train_nvnmd.add_argument(
+        "INPUT", help="the input parameter file in json format"
+    )
+    parser_train_nvnmd.add_argument(
+        "-s",
+        "--step",
+        default="s1",
+        type=str,
+        choices=['s1', 's2'],
+        help="steps to train model of NVNMD: s1 (train CNN), s2 (train QNN)"
+    )
+    return parser
+
+
+def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
+    """Parse arguments and convert argument strings to objects.
+
+    Parameters
+    ----------
+    args: List[str]
+        list of command line arguments, main purpose is testing default option None
+        takes arguments from sys.argv
+
+    Returns
+    -------
+    argparse.Namespace
+        the populated namespace
+    """
+    parser = main_parser()
     parsed_args = parser.parse_args(args=args)
     if parsed_args.command is None:
         parser.print_help()
@@ -489,6 +532,8 @@ def main():
         convert(**dict_args)
     elif args.command == "neighbor-stat":
         neighbor_stat(**dict_args)
+    elif args.command == "train-nvnmd":  # nvnmd
+        train_nvnmd(**dict_args)
     elif args.command is None:
         pass
     else:

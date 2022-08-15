@@ -2,6 +2,9 @@
 #include "AtomMap.h"
 #include "device.h"
 #include <dlfcn.h>
+#include <fcntl.h>
+#include "google/protobuf/text_format.h"
+#include "google/protobuf/io/zero_copy_stream_impl.h"
 
 using namespace tensorflow;
 
@@ -207,6 +210,14 @@ check_status(const tensorflow::Status& status) {
 }
 
 void
+throw_env_not_set_warning(std::string env_name)
+{
+  std::cerr << "DeePMD-kit WARNING: Environmental variable " << env_name << " is not set. "
+    << "Tune " << env_name << " for the best performance."
+    << std::endl;
+}
+
+void
 deepmd::
 get_env_nthreads(int & num_intra_nthreads,
 		 int & num_inter_nthreads)
@@ -215,17 +226,28 @@ get_env_nthreads(int & num_intra_nthreads,
   num_inter_nthreads = 0;
   const char* env_intra_nthreads = std::getenv("TF_INTRA_OP_PARALLELISM_THREADS");
   const char* env_inter_nthreads = std::getenv("TF_INTER_OP_PARALLELISM_THREADS");
+  const char* env_omp_nthreads = std::getenv("OMP_NUM_THREADS");
   if (env_intra_nthreads && 
       std::string(env_intra_nthreads) != std::string("") && 
       atoi(env_intra_nthreads) >= 0
       ) {
     num_intra_nthreads = atoi(env_intra_nthreads);
+  } else {
+    throw_env_not_set_warning("TF_INTRA_OP_PARALLELISM_THREADS");
   }
   if (env_inter_nthreads && 
       std::string(env_inter_nthreads) != std::string("") &&
       atoi(env_inter_nthreads) >= 0
       ) {
     num_inter_nthreads = atoi(env_inter_nthreads);
+  } else {
+    throw_env_not_set_warning("TF_INTER_OP_PARALLELISM_THREADS");
+  }
+  if (!(env_omp_nthreads && 
+      std::string(env_omp_nthreads) != std::string("") &&
+      atoi(env_omp_nthreads) >= 0
+      )) {
+    throw_env_not_set_warning("OMP_NUM_THREADS");
   }
 }
 
@@ -836,3 +858,25 @@ select_map_inv<deepmd::STRINGTYPE >(
     const typename std::vector<deepmd::STRINGTYPE >::const_iterator in, 
     const std::vector<int > & idx_map, 
     const int & stride);
+
+
+void
+deepmd::
+read_file_to_string(std::string model, std::string & file_content)
+{
+  deepmd::check_status(tensorflow::ReadFileToString(tensorflow::Env::Default(), model, &file_content));
+}
+
+
+void
+deepmd::
+convert_pbtxt_to_pb(std::string fn_pb_txt, std::string fn_pb)
+{
+    int fd = open(fn_pb_txt.c_str(), O_RDONLY);
+    tensorflow::protobuf::io::ZeroCopyInputStream* input = new tensorflow::protobuf::io::FileInputStream(fd);
+    tensorflow::GraphDef graph_def;
+    tensorflow::protobuf::TextFormat::Parse(input, &graph_def);
+    delete input;
+    std::fstream output(fn_pb, std::ios::out | std::ios::trunc | std::ios::binary);
+    graph_def.SerializeToOstream(&output);
+}

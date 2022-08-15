@@ -5,7 +5,8 @@ using namespace tensorflow;
 
 DipoleChargeModifier::
 DipoleChargeModifier()
-    : inited (false)
+    : inited (false),
+      graph_def(new GraphDef())
 {
 }
 
@@ -13,10 +14,16 @@ DipoleChargeModifier::
 DipoleChargeModifier(const std::string & model, 
 	     const int & gpu_rank, 
 	     const std::string &name_scope_)
-    : inited (false), name_scope(name_scope_)
+    : inited (false), name_scope(name_scope_),
+      graph_def(new GraphDef())
 {
   init(model, gpu_rank);  
 }
+
+DipoleChargeModifier::
+~DipoleChargeModifier () {
+  delete graph_def;
+};
 
 void
 DipoleChargeModifier::
@@ -35,8 +42,8 @@ init (const std::string & model,
   options.config.set_intra_op_parallelism_threads(num_intra_nthreads);
   deepmd::load_op_library();
   deepmd::check_status(NewSession(options, &session));
-  deepmd::check_status(ReadBinaryProto(Env::Default(), model, &graph_def));
-  deepmd::check_status(session->Create(graph_def));  
+  deepmd::check_status(ReadBinaryProto(Env::Default(), model, graph_def));
+  deepmd::check_status(session->Create(*graph_def));  
   // int nnodes = graph_def.node_size();
   // for (int ii = 0; ii < nnodes; ++ii){
   //   cout << ii << " \t " << graph_def.node(ii).name() << endl;
@@ -142,8 +149,8 @@ compute (std::vector<VALUETYPE> &		dfcorr_,
   if (nloc_real == 0){
     dfcorr_.resize(nall * 3);
     dvcorr_.resize(9);
-    fill(dfcorr_.begin(), dfcorr_.end(), 0.0);
-    fill(dvcorr_.begin(), dvcorr_.end(), 0.0);
+    fill(dfcorr_.begin(), dfcorr_.end(), (VALUETYPE)0.0);
+    fill(dvcorr_.begin(), dvcorr_.end(), (VALUETYPE)0.0);
     return;
   }
   // resize to nall_real
@@ -223,7 +230,7 @@ compute (std::vector<VALUETYPE> &		dfcorr_,
   assert(dfcorr_1.size() == nall_real * 3);
   // resize to all and clear
   std::vector<VALUETYPE> dfcorr_2(nall*3);
-  fill(dfcorr_2.begin(), dfcorr_2.end(), 0.0);
+  fill(dfcorr_2.begin(), dfcorr_2.end(), (VALUETYPE)0.0);
   // back map to original position
   for (int ii = 0; ii < nall_real; ++ii){
     for (int dd = 0; dd < 3; ++dd){

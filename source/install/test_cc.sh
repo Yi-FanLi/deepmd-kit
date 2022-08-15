@@ -26,7 +26,7 @@ INSTALL_PREFIX=${SCRIPT_PATH}/../../dp_test_cc
 mkdir -p ${BUILD_TMP_DIR}
 mkdir -p ${INSTALL_PREFIX}
 cd ${BUILD_TMP_DIR}
-cmake -DINSTALL_TENSORFLOW=TRUE -DCMAKE_INSTALL_PREFIX=${INSTALL_PREFIX} ../api_cc/tests
+cmake -DINSTALL_TENSORFLOW=TRUE -DCMAKE_INSTALL_PREFIX=${INSTALL_PREFIX} -DTENSORFLOW_ROOT=${INSTALL_PREFIX} ../api_cc/tests
 make -j${NPROC}
 make install
 
@@ -34,8 +34,4 @@ make install
 cd ${SCRIPT_PATH}/../api_cc/tests
 ${INSTALL_PREFIX}/bin/runUnitTests
 
-#------------------
-# upload to codecov
-cd ${SCRIPT_PATH}
-bash <(curl -s https://codecov.io/bash) || echo "Codecov did not collect coverage reports"
 
