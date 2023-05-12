@@ -474,12 +474,7 @@ def main_parser() -> argparse.ArgumentParser:
         help="convert lower model version to supported version",
         formatter_class=RawTextArgumentDefaultsHelpFormatter,
         epilog=textwrap.dedent(
-            """\
-        examples:
-            dp convert-from -i graph.pb -o graph_new.pb\n
-            dp convert-from auto -i graph.pb -o graph_new.pb\n
-            dp convert-from 1.0 -i graph.pb -o graph_new.pb
-        """
+            "examples:\n  dp convert-from -i graph.pb -o graph_new.pb\n  dp convert-from auto -i graph.pb -o graph_new.pb\n  dp convert-from 1.0 -i graph.pb -o graph_new.pb"
         ),
     )
     parser_transform.add_argument(
