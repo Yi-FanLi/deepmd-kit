@@ -53,6 +53,7 @@ class FixDPLR : public Fix {
   void unpack_reverse_comm(int, int *, double *) override;
   double compute_scalar(void) override;
   double compute_vector(int) override;
+  double compute_array(int, int) override;
 
  private:
   PairDeepMD *pair_deepmd;
@@ -68,7 +69,8 @@ class FixDPLR : public Fix {
   std::vector<FLOAT_PREC> dipole_recd;
   std::vector<double> dfcorr_buff;
   std::vector<double> efield;
-  std::vector<double> efield_fsum, efield_fsum_all;
+  double efield_esum, efield_esum_all;
+  std::vector<double> efield_f, efield_f_all;
   int efield_force_flag;
   void get_valid_pairs(std::vector<std::pair<int, int> > &pairs);
   int varflag;

@@ -42,8 +42,6 @@ FixDPLR::FixDPLR(LAMMPS *lmp, int narg, char **arg)
       ystr(nullptr),
       zstr(nullptr),
       efield(3, 0.0),
-      efield_fsum(4, 0.0),
-      efield_fsum_all(4, 0.0),
       efield_force_flag(0) {
 #if LAMMPS_VERSION_NUMBER >= 20210210
   // lammps/lammps#2560
@@ -54,8 +52,13 @@ FixDPLR::FixDPLR(LAMMPS *lmp, int narg, char **arg)
 #endif
 
   scalar_flag = 1;
-  vector_flag = 1;
-  size_vector = 3;
+  // vector_flag = 1;
+  // size_vector = 3;
+  array_flag = 1;
+  size_array_rows = atom->natoms;
+  size_array_cols = 3;
+  efield_f = vector<double> (atom->nlocal*3, 0);
+  efield_f_all = vector<double> (atom->natoms*3, 0);
   qe2f = force->qe2f;
   xstyle = ystyle = zstyle = NONE;
 
@@ -545,7 +548,7 @@ void FixDPLR::post_force(int vflag) {
     imageint *image = atom->image;
     double unwrap[3];
     double v[6];
-    efield_fsum[0] = efield_fsum[1] = efield_fsum[2] = efield_fsum[3] = 0.0;
+    efield_esum = 0.0;
     efield_force_flag = 0;
     for (int ii = 0; ii < nlocal; ++ii) {
       double tmpf[3];
@@ -556,11 +559,11 @@ void FixDPLR::post_force(int vflag) {
         dfele[ii * 3 + dd] += tmpf[dd];
       }
       domain->unmap(x[ii], image[ii], unwrap);
-      efield_fsum[0] -=
+      efield_esum -=
           tmpf[0] * unwrap[0] + tmpf[1] * unwrap[1] + tmpf[2] * unwrap[2];
-      efield_fsum[1] += tmpf[0];
-      efield_fsum[2] += tmpf[1];
-      efield_fsum[3] += tmpf[2];
+      efield_f[3*ii+0] = tmpf[0];
+      efield_f[3*ii+1] = tmpf[1];
+      efield_f[3*ii+2] = tmpf[2];
       if (evflag) {
         v[0] = tmpf[0] * unwrap[0];
         v[1] = tmpf[1] * unwrap[1];
@@ -714,6 +717,14 @@ double FixDPLR::compute_vector(int n) {
     efield_force_flag = 1;
   }
   return efield_fsum_all[n + 1];
+}
+
+/* ----------------------------------------------------------------------
+   return efield force
+------------------------------------------------------------------------- */
+
+double FixDPLR::compute_array(int i, int j) {
+
 }
 
 /* ----------------------------------------------------------------------
