@@ -49,6 +49,9 @@ FixCBOAMD::FixCBOAMD(LAMMPS* lmp, int narg, char** arg)
       dipole(nullptr),
       polarizability(nullptr),
       forces_deepmd(nullptr),
+      dipole_model_output(DipoleModelOutput::DIPOLE),
+      ion_charges_set(false),
+      wc_charge(-8.0),
       dipole_value_to_au(ANGSTROM_TO_BOHR),
       dipole_grad_to_au(1.0),
       polar_value_to_au(ANGSTROM3_TO_BOHR3),
@@ -88,6 +91,30 @@ FixCBOAMD::FixCBOAMD(LAMMPS* lmp, int narg, char** arg)
       }
       model_polar = utils::strdup(arg[iarg + 1]);
       iarg += 2;
+    } else if (strcmp(arg[iarg], "dipole_model_output") == 0 ||
+               strcmp(arg[iarg], "dipole_output") == 0) {
+      if (iarg + 1 >= narg) {
+        error->all(FLERR, "Illegal fix cboamd command");
+      }
+      set_dipole_model_output(arg[iarg + 1]);
+      iarg += 2;
+    } else if (strcmp(arg[iarg], "wc_charge") == 0) {
+      if (iarg + 1 >= narg) {
+        error->all(FLERR, "Illegal fix cboamd command");
+      }
+      wc_charge = utils::numeric(FLERR, arg[iarg + 1], false, lmp);
+      iarg += 2;
+    } else if (strcmp(arg[iarg], "ion_charges") == 0) {
+      const int ncharge = atom->ntypes;
+      if (ncharge <= 0 || iarg + ncharge >= narg) {
+        error->all(FLERR, "Illegal fix cboamd ion_charges command");
+      }
+      ion_charges.assign(ncharge + 1, 0.0);
+      for (int i = 1; i <= ncharge; i++) {
+        ion_charges[i] = utils::numeric(FLERR, arg[iarg + i], false, lmp);
+      }
+      ion_charges_set = true;
+      iarg += 1 + ncharge;
     } else if (strcmp(arg[iarg], "dipole_unit") == 0) {
       if (iarg + 1 >= narg) {
         error->all(FLERR, "Illegal fix cboamd command");
@@ -171,10 +198,21 @@ FixCBOAMD::FixCBOAMD(LAMMPS* lmp, int narg, char** arg)
         FLERR,
         "fix cboamd: lambda_vector must be specified when photons enabled");
   }
+  if (dipole_model_output == DipoleModelOutput::DISPLACEMENT &&
+      !ion_charges_set) {
+    error->all(FLERR,
+               "fix cboamd requires ion_charges when dipole_model_output is "
+               "displacement");
+  }
   // if (dt <= 0.0) error->all(FLERR,"fix cboamd: dt must be > 0");
 
   // Set up arrays
   ntypes = atom->ntypes;
+  if (ion_charges_set && static_cast<int>(ion_charges.size()) != ntypes + 1) {
+    error->all(FLERR,
+               "fix cboamd ion_charges must contain one charge for each "
+               "LAMMPS atom type");
+  }
   memory->create(type_map, ntypes + 1, "fix_cboamd:type_map");
   for (int i = 1; i <= ntypes; i++) {
     type_map[i] = i - 1;  // Default mapping: type 1 -> 0, type 2 -> 1, etc.
@@ -527,12 +565,46 @@ void FixCBOAMD::init_deepmd_models() {
     if (comm->me == 0) {
       utils::logmesg(lmp, "DeepMD models initialized successfully:\n");
       utils::logmesg(lmp, "  Dipole: {}\n", model_dipole);
+      if (dipole_model_output == DipoleModelOutput::DISPLACEMENT) {
+        utils::logmesg(
+            lmp,
+            "  Dipole model output: WC displacement sum in Angstrom; "
+            "wc_charge = {} e\n",
+            wc_charge);
+        if (ion_charges_set) {
+          utils::logmesg(lmp, "  Ionic charges by LAMMPS type:");
+          for (int i = 1; i <= ntypes; i++) {
+            utils::logmesg(lmp, " {}", ion_charges[i]);
+          }
+          utils::logmesg(lmp, " e\n");
+        }
+      } else {
+        utils::logmesg(lmp, "  Dipole model output: physical dipole\n");
+      }
       if (model_polar) {
         utils::logmesg(lmp, "  Polarizability: {}\n", model_polar);
       }
     }
   } catch (const std::exception& e) {
     error->all(FLERR, "Failed to initialize DeepMD models: {}", e.what());
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+
+void FixCBOAMD::set_dipole_model_output(const char* output) {
+  if (strcmp(output, "dipole") == 0 || strcmp(output, "physical") == 0 ||
+      strcmp(output, "physical_dipole") == 0) {
+    dipole_model_output = DipoleModelOutput::DIPOLE;
+  } else if (strcmp(output, "displacement") == 0 ||
+             strcmp(output, "wc_displacement") == 0 ||
+             strcmp(output, "wannier_displacement") == 0) {
+    dipole_model_output = DipoleModelOutput::DISPLACEMENT;
+  } else {
+    error->all(FLERR,
+               "Unsupported fix cboamd dipole_model_output '{}'; use dipole "
+               "or displacement",
+               output);
   }
 }
 
@@ -612,9 +684,31 @@ void FixCBOAMD::compute_deepmd_dipole() {
                            dipole_virial_deepmd, dipole_atom_deepmd,
                            dipole_atom_virial_deepmd, coords_deepmd,
                            atom_types_deepmd, cell_deepmd);
-    dipole[0] = dipole_deepmd[0] * dipole_value_to_au;
-    dipole[1] = dipole_deepmd[1] * dipole_value_to_au;
-    dipole[2] = dipole_deepmd[2] * dipole_value_to_au;
+    if (dipole_model_output == DipoleModelOutput::DISPLACEMENT) {
+      double local_dipole[3] = {dipole_deepmd[0] * wc_charge,
+                                dipole_deepmd[1] * wc_charge,
+                                dipole_deepmd[2] * wc_charge};
+      const int nlocal = atom->nlocal;
+      int* type = atom->type;
+      imageint* image = atom->image;
+      double** x = atom->x;
+      double unwrap[3];
+      for (int i = 0; i < nlocal; i++) {
+        const double q = ion_charges[type[i]];
+        domain->unmap(x[i], image[i], unwrap);
+        local_dipole[0] += q * unwrap[0];
+        local_dipole[1] += q * unwrap[1];
+        local_dipole[2] += q * unwrap[2];
+      }
+      for (int i = 0; i < 3; i++) {
+        local_dipole[i] *= ANGSTROM_TO_BOHR;
+      }
+      MPI_Allreduce(local_dipole, dipole, 3, MPI_DOUBLE, MPI_SUM, world);
+    } else {
+      dipole[0] = dipole_deepmd[0] * dipole_value_to_au;
+      dipole[1] = dipole_deepmd[1] * dipole_value_to_au;
+      dipole[2] = dipole_deepmd[2] * dipole_value_to_au;
+    }
   } catch (const std::exception& e) {
     error->all(FLERR, "DeepMD dipole computation failed: {}", e.what());
   }
@@ -689,6 +783,9 @@ void FixCBOAMD::compute_cboa_forces() {
 
   int nlocal = atom->nlocal;
   double** f = atom->f;
+  const double dipole_grad_scale_to_au =
+      dipole_model_output == DipoleModelOutput::DISPLACEMENT ? wc_charge
+                                                             : dipole_grad_to_au;
 
   for (int dp = 0; dp < 3; dp++) {  // dp is the direction of dipole or photon
     for (int i = 0; i < nlocal; i++) {
@@ -699,9 +796,15 @@ void FixCBOAMD::compute_cboa_forces() {
                        // i, coordinate di
         for (int alpha = 0; alpha < nphoton; alpha++) {
           // CBOA force contribution from photon alpha
+          const double ion_grad =
+              dipole_model_output == DipoleModelOutput::DISPLACEMENT && dp == di
+                  ? -ion_charges[atom->type[i]]
+                  : 0.0;
           f[i][di] -= ea[alpha] * lambda_photon[alpha] *
-                      lambda_vector[alpha][dp] * dipole_grad_deepmd[idx] *
-                      dipole_grad_to_au * HARTREE_PER_BOHR_TO_EV_PER_ANGSTROM;
+                      lambda_vector[alpha][dp] *
+                      (dipole_grad_deepmd[idx] * dipole_grad_scale_to_au +
+                       ion_grad) *
+                      HARTREE_PER_BOHR_TO_EV_PER_ANGSTROM;
         }
       }
     }

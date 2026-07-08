@@ -21,6 +21,8 @@ FixStyle(cboamd,FixCBOAMD);
 #ifndef LMP_FIX_CBOAMD_H
 #define LMP_FIX_CBOAMD_H
 
+#include <vector>
+
 #include "fix.h"
 
 // DeePMD interface includes
@@ -90,6 +92,11 @@ class FixCBOAMD : public Fix {
   // Tensor-unit conversion factors from model output to atomic units. Values
   // and coordinate gradients need different factors because DeepMD gradients
   // are with respect to Angstrom coordinates.
+  enum class DipoleModelOutput { DIPOLE, DISPLACEMENT };
+  DipoleModelOutput dipole_model_output;
+  std::vector<double> ion_charges;
+  bool ion_charges_set;
+  double wc_charge;
   double dipole_value_to_au;
   double dipole_grad_to_au;
   double polar_value_to_au;
@@ -137,6 +144,7 @@ class FixCBOAMD : public Fix {
   void update_photon_coordinates();
   void compute_cboa_forces();
   void write_output();
+  void set_dipole_model_output(const char*);
   void set_dipole_unit(const char*);
   void set_polarizability_unit(const char*);
 
